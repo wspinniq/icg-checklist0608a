@@ -1128,8 +1128,11 @@
     }
 
     function getHistorySortValue(record) {
-      const source = normalizeEmpty(record.createdAt) || normalizeEmpty(record.occurTimeText) || normalizeEmpty(record.processTimeText);
-      return parseDateTextToMillis(source);
+      // 歷史紀錄排序只依「發生時間」。
+      // 若發生時間為空白或「無填寫」，一律視為最久以前的資料。
+      const occurTime = normalizeEmpty(record.occurTimeText);
+      if (!occurTime) return 0;
+      return parseDateTextToMillis(occurTime);
     }
 
     function addOptionValues(set, value) {
@@ -1279,9 +1282,10 @@
         const tagValues = Array.isArray(record.tag) ? record.tag : splitMulti(record.tag);
         const isUrgent = tagValues.some(value => normalizeEmpty(value) === "緊急");
         const itemClass = isDone ? "history-item done" : (isUrgent ? "history-item urgent" : "history-item");
+        const displayTime = noValue(record.occurTimeText);
         return `
           <div class="${itemClass}">
-            <div class="history-main">${escapeHTML(record.createdAt)}｜${escapeHTML(instrument)}｜${escapeHTML(status)}</div>
+            <div class="history-main">${escapeHTML(displayTime)}｜${escapeHTML(instrument)}｜${escapeHTML(status)}</div>
             <div class="history-sub">標籤：${escapeHTML(tag)}｜使用者：${escapeHTML(user)}｜處理階段：${escapeHTML(stage)}｜處理者：${escapeHTML(processor)}</div>
             <div class="history-actions">
               <button class="btn-secondary btn-small" type="button" onclick="toggleDetail('${record.id}')">查看</button>
