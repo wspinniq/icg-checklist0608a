@@ -503,10 +503,10 @@
       <select id="status">
         <option value="">請選擇</option>
         <option value="登入成功">登入成功</option>
-        <option value="登入失敗 會員資料不齊全 ">登入失敗 會員資料不齊全 </option>
+        <option value="登入失敗 會員資料不齊全">登入失敗 會員資料不齊全</option>
         <option value="登入失敗 不正確">登入失敗 不正確</option>
-        <option value="機台暫停使用">ICG軟體系統相關</option>
-        <option value="機台暫停使用">會員APP相關</option>
+        <option value="ICG軟體系統相關">ICG軟體系統相關</option>
+        <option value="會員APP相關">會員APP相關</option>
         <option value="網路連線異常">網路連線異常</option>
         <option value="硬體零件確認">硬體零件確認</option>
         <option value="機台暫停使用">機台暫停使用</option>
@@ -705,7 +705,7 @@
     function splitMulti(text) {
       const clean = normalizeEmpty(text);
       if (!clean) return [];
-      return clean.split(/[、;；]/).map(v => v.trim()).filter(Boolean);
+      return clean.split(/[、,，;；]/).map(v => v.trim()).filter(Boolean);
     }
 
     function formatDateTime(value) {
@@ -899,6 +899,132 @@
         .replace(/'/g, "&#039;");
     }
 
+    function setSelectOrCustom(selectId, customInputId, value) {
+      const select = document.getElementById(selectId);
+      const customInput = document.getElementById(customInputId);
+      if (!select) return;
+
+      const cleanValue = normalizeEmpty(value);
+      const hasOption = Array.from(select.options).some(option => option.value === cleanValue);
+
+      if (!cleanValue) {
+        select.value = "";
+        if (customInput) {
+          customInput.value = "";
+          customInput.classList.remove("show");
+        }
+        return;
+      }
+
+      if (hasOption) {
+        select.value = cleanValue;
+        if (customInput) {
+          customInput.value = "";
+          customInput.classList.remove("show");
+        }
+      } else {
+        select.value = "__custom__";
+        if (customInput) {
+          customInput.value = cleanValue;
+          customInput.classList.add("show");
+        }
+      }
+    }
+
+    function setMultiSelectValues(name, values, customInputId) {
+      const wrap = document.querySelector(`.multi-select[data-name="${name}"]`);
+      if (!wrap) return;
+
+      const valueList = arrayValues(values);
+      const checkboxes = Array.from(wrap.querySelectorAll("input[type='checkbox']"));
+      const customCheck = wrap.querySelector(".custom-check");
+      const customInput = customInputId ? document.getElementById(customInputId) : null;
+      const unmatched = [];
+
+      checkboxes.forEach(box => {
+        if (box.value !== "__custom__") box.checked = false;
+      });
+      if (customCheck) customCheck.checked = false;
+      if (customInput) {
+        customInput.value = "";
+        customInput.classList.remove("show");
+      }
+
+      valueList.forEach(value => {
+        const matched = checkboxes.find(box => box.value !== "__custom__" && box.value === value);
+        if (matched) {
+          matched.checked = true;
+        } else if (value) {
+          unmatched.push(value);
+        }
+      });
+
+      if (unmatched.length && customCheck && customInput) {
+        customCheck.checked = true;
+        customInput.value = unmatched.join("、");
+        customInput.classList.add("show");
+      }
+
+      updateMultiDisplay(wrap);
+    }
+
+    function setTagValues(values) {
+      const wrap = document.querySelector('.multi-select[data-name="tag"]');
+      if (!wrap) return;
+
+      const valueList = arrayValues(values);
+      Array.from(wrap.querySelectorAll("input[type='checkbox']")).forEach(box => {
+        box.checked = false;
+      });
+
+      valueList.forEach(value => {
+        let checkbox = Array.from(wrap.querySelectorAll("input[type='checkbox']"))
+          .find(box => box.value === value);
+
+        if (!checkbox && value) {
+          createCustomTagOption(value, true);
+          saveCustomTags([...getSavedCustomTags(), value]);
+          checkbox = Array.from(wrap.querySelectorAll("input[type='checkbox']"))
+            .find(box => box.value === value);
+        }
+
+        if (checkbox) checkbox.checked = true;
+      });
+
+      updateMultiDisplay(wrap);
+    }
+
+    function applyRecordToForm(id) {
+      const record = getHistory().find(item => item.id === id);
+      if (!record) return;
+
+      if (!confirm("確定要將這筆歷史紀錄代入上方表單嗎？目前表單內容會被覆蓋，但不會影響原本歷史紀錄。")) return;
+
+      setMultiSelectValues("instrument", record.instrument, "instrumentCustom");
+      setSelectOrCustom("status", "statusCustom", record.status);
+      setTagValues(record.tag);
+      setMultiSelectValues("user", record.user, "userCustom");
+
+      const occurTimeEl = document.getElementById("occurTime");
+      if (occurTimeEl) occurTimeEl.value = toDateTimeLocalValue(record.occurTimeRaw || record.occurTimeText);
+
+      const noteEl = document.getElementById("note");
+      if (noteEl) noteEl.value = normalizeEmpty(record.note);
+
+      setSelectOrCustom("processStage", "processStageCustom", record.processStage);
+      setSelectOrCustom("processor", "processorCustom", record.processor);
+
+      const processTimeEl = document.getElementById("processTime");
+      if (processTimeEl) processTimeEl.value = toDateTimeLocalValue(record.processTimeRaw || record.processTimeText);
+
+      const resultBox = document.getElementById("resultBox");
+      if (resultBox) resultBox.style.display = "none";
+      currentReportText = "";
+
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      alert("已將這筆歷史紀錄代入上方表單。確認內容後，可再按「產生檢查報告」建立新紀錄。");
+    }
+
     function getEditStageInitial(record) {
       const stage = normalizeEmpty(record.processStage);
       const standard = ["未通報", "處理中", "處理完畢"];
@@ -981,14 +1107,29 @@
       return splitMulti(value).map(v => normalizeEmpty(v)).filter(Boolean);
     }
 
+    function parseDateTextToMillis(value) {
+      const clean = normalizeEmpty(value);
+      if (!clean) return 0;
+
+      const match = clean.match(/^(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})(?:\s+|T)?(\d{1,2})?[:：]?(\d{1,2})?[:：]?(\d{1,2})?/);
+      if (match) {
+        const y = Number(match[1]);
+        const m = Number(match[2]) - 1;
+        const d = Number(match[3]);
+        const h = Number(match[4] || 0);
+        const min = Number(match[5] || 0);
+        const s = Number(match[6] || 0);
+        const date = new Date(y, m, d, h, min, s);
+        return isNaN(date.getTime()) ? 0 : date.getTime();
+      }
+
+      const fallback = Date.parse(clean);
+      return isNaN(fallback) ? 0 : fallback;
+    }
+
     function getHistorySortValue(record) {
       const source = normalizeEmpty(record.createdAt) || normalizeEmpty(record.occurTimeText) || normalizeEmpty(record.processTimeText);
-      if (!source) return 0;
-      const normalized = source.replace(/\//g, "-");
-      const parsed = new Date(normalized);
-      if (!isNaN(parsed.getTime())) return parsed.getTime();
-      const fallback = Date.parse(source);
-      return isNaN(fallback) ? 0 : fallback;
+      return parseDateTextToMillis(source);
     }
 
     function addOptionValues(set, value) {
@@ -1145,6 +1286,7 @@
             <div class="history-actions">
               <button class="btn-secondary btn-small" type="button" onclick="toggleDetail('${record.id}')">查看</button>
               <button class="btn-secondary btn-small" type="button" onclick="toggleEdit('${record.id}')">編輯</button>
+              <button class="btn-secondary btn-small" type="button" onclick="applyRecordToForm('${record.id}')">代入</button>
               <button class="btn-primary btn-small" type="button" onclick="copyHistoryReport('${record.id}')">複製</button>
               <button class="btn-danger btn-small" type="button" onclick="deleteHistoryItem('${record.id}')">刪除</button>
             </div>
